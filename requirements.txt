@@ -1,3 +1,5 @@
 protobuf
 pytest
 mock
+pre-commit
+black
