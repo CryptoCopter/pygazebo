@@ -238,7 +238,7 @@ class _Connection:
 
         # TODO: Either assert that this is numeric, or have a separate DNS resolution stage.
         # FIXME: asyncio no longer works this way (since python 3.7 'async' is a keyword)
-        future = asyncio.async(loop.sock_connect(self.socket, address))
+        future = loop.sock_connect(self.socket, address)
 
         def callback_impl(future):
             try:
@@ -268,7 +268,7 @@ class _Connection:
     def start_accept(self, callback):
         loop = asyncio.get_event_loop()
         # FIXME: asyncio no longer works this way (since python 3.7 'async' is a keyword)
-        future = asyncio.async(loop.sock_accept(self.socket))
+        future = loop.sock_accept(self.socket)
         future.add_done_callback(lambda future: self.handle_accept(callback, future))
 
     def handle_accept(self, callback, future):
@@ -283,7 +283,7 @@ class _Connection:
 
         loop = asyncio.get_event_loop()
         # FIXME: asyncio no longer works this way (since python 3.7 'async' is a keyword)
-        future = asyncio.async(loop.sock_recv(self.socket, 8))
+        future = loop.sock_recv(self.socket, 8)
         future.add_done_callback(
             lambda future: self.handle_read_raw_header(future, result)
         )
@@ -317,11 +317,10 @@ class _Connection:
 
             loop = asyncio.get_event_loop()
             # FIXME: asyncio no longer works this way (since python 3.7 'async' is a keyword)
-            future = asyncio.async(
-                loop.sock_recv(
-                    self.socket, min(total_size - len(starting_data), self.BUF_SIZE)
-                )
+            future = loop.sock_recv(
+                self.socket, min(total_size - len(starting_data), self.BUF_SIZE)
             )
+
             future.add_done_callback(
                 lambda future: self.handle_read_data(
                     future, starting_data, total_size, result
@@ -380,7 +379,7 @@ class _Connection:
 
             loop = asyncio.get_event_loop()
             # FIXME: asyncio no longer works this way (since python 3.7 'async' is a keyword)
-            future = asyncio.async(loop.sock_sendall(self.socket, this_send))
+            future = loop.sock_sendall(self.socket, this_send)
             future.add_done_callback(lambda future: self.send_pieces(next_send, result))
         except Exception as e:
             result.set_exception(e)
