@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 """
 Python bindings to the Gazebo multi-robot simulator
 ===================================================
@@ -19,13 +16,8 @@ that python applications can seamlessly interact with Gazebo entities.
 pygazebo is based on eventlet for asynchronous network operations.
 """
 
-from .pygazebo import connect
-from .pygazebo import Manager
-from .pygazebo import Publisher
-from .pygazebo import Subscriber
+__all__ = ["pygazebo", "msg"]
 
-__all__ = ["connect", "Manager", "Publisher", "Subscriber"]
-
-__author__ = 'Josh Pieper'
-__email__ = 'jjp@pobox.com'
-__version__ = '2.2.1-2014.1'
+__author__ = "Markus Sommer"
+__email__ = "msommer@informatik.uni-marburg.de"
+__version__ = "4.0.0"

@@ -1,27 +1,13 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-try:
-    import asyncio
-except ImportError:
-    import trollius as asyncio
+import asyncio
 
 import logging
 import math
 import socket
-import sys
 import time
 
-from . import msg
-from .msg import gz_string_pb2
-from .msg import gz_string_v_pb2
-from .msg import packet_pb2
-from .msg import publishers_pb2
-from .msg import subscribe_pb2
+from pygazebo import msg
 
 logger = logging.getLogger(__name__)
-
-tobytes = str if sys.version_info[0] < 3 else lambda x: bytes(x, 'utf-8')
 
 
 class ParseError(RuntimeError):
@@ -29,17 +15,20 @@ class ParseError(RuntimeError):
 
 
 class DisconnectError(RuntimeError):
-    '''Thrown when a disconnect is detected -- but we do not currently
-       handle all disconnect cases'''
+    """Thrown when a disconnect is detected -- but we do not currently
+    handle all disconnect cases"""
+
     pass
 
 
-class Event(object):
+class Event:
     """This class provides nearly identical functionality to
     asyncio.Event, but does not require coroutines."""
+
     def __init__(self):
         self.futures = []
         self.clear()
+        self._set = False
 
     def clear(self):
         self._set = False
@@ -62,12 +51,13 @@ class Event(object):
         self.futures = []
 
 
-class Publisher(object):
+class Publisher:
     """Publishes data to the Gazebo publish-subscribe bus.
 
     :ivar topic: (string) the topic name this publisher is using
     :ivar msg_type: (string) the Gazebo message type
     """
+
     def __init__(self):
         """:class:`Publisher` should not be directly created"""
         self.topic = None
@@ -112,7 +102,7 @@ class Publisher(object):
             try:
                 future.result()
             except Exception as e:
-                logger.debug('write error, closing connection:' + str(e))
+                logger.debug("write error, closing connection:" + str(e))
                 if connection in self.publisher._listeners:
                     self.publisher._listeners.remove(connection)
 
@@ -128,7 +118,9 @@ class Publisher(object):
             future = connection.write(message)
             future.add_done_callback(
                 lambda future, connection=connection: result.handle_done(
-                    future, connection))
+                    future, connection
+                )
+            )
 
         return result
 
@@ -137,16 +129,17 @@ class Publisher(object):
         self._first_listener_ready.set()
 
 
-class Subscriber(object):
+class Subscriber:
     """Receives data from the Gazebo publish-subscribe bus.
 
     :ivar topic: (str) The topic name this subscriber is listening for.
     :ivar msg_type: (str) The Gazebo message type.
     :ivar callback: (function) The current function to invoke.
     """
+
     def __init__(self, local_host, local_port):
         """:class:`Subscriber` should not be directly created"""
-        logger.debug('Subscriber.__init__ %s %d', local_host, local_port)
+        logger.debug(f"Subscriber.__init__ {local_host} {local_port}")
         self.topic = None
         self.msg_type = None
         self.callback = None
@@ -176,8 +169,7 @@ class Subscriber(object):
 
         # Connect to the remote provider.
         future = connection.connect((pub.host, pub.port))
-        future.add_done_callback(
-            lambda future: self._connect2(future, connection, pub))
+        future.add_done_callback(lambda future: self._connect2(future, connection, pub))
 
     def _connect2(self, future, connection, pub):
         future.result()  # Check for error
@@ -193,9 +185,8 @@ class Subscriber(object):
         to_send.msg_type = pub.msg_type
         to_send.latching = False
 
-        future = connection.write_packet('sub', to_send)
-        future.add_done_callback(
-            lambda future: self._connect3(future, connection))
+        future = connection.write_packet("sub", to_send)
+        future.add_done_callback(lambda future: self._connect3(future, connection))
 
     def _connect3(self, future, connection):
         future.result()  # check for error
@@ -203,8 +194,7 @@ class Subscriber(object):
         if not self._connection_future.done():
             self._connection_future.set_result(None)
         future = connection.read_raw()
-        future.add_done_callback(
-            lambda future: self._handle_read(future, connection))
+        future.add_done_callback(lambda future: self._handle_read(future, connection))
 
     def _handle_read(self, future, connection):
         data = future.result()
@@ -218,7 +208,7 @@ class Subscriber(object):
         self._connect3(future, connection)
 
 
-class _Connection(object):
+class _Connection:
     """Manages a Gazebo protocol connection.
 
     This can connect to either the Gazebo server, or to a data
@@ -240,14 +230,14 @@ class _Connection(object):
         self._local_ready = Event()
 
     def connect(self, address):
-        logger.debug('Connection.connect')
+        logger.debug("Connection.connect")
         self.address = address
         loop = asyncio.get_event_loop()
         self.socket = socket.socket()
         self.socket.setblocking(False)
 
-        # TODO jpieper: Either assert that this is numeric, or have a
-        # separate DNS resolution stage.
+        # TODO: Either assert that this is numeric, or have a separate DNS resolution stage.
+        # FIXME: asyncio no longer works this way (since python 3.7 'async' is a keyword)
         future = asyncio.async(loop.sock_connect(self.socket, address))
 
         def callback_impl(future):
@@ -267,7 +257,7 @@ class _Connection(object):
         time a new connection is available."""
 
         self.socket = socket.socket()
-        self.socket.bind(('', 0))
+        self.socket.bind(("", 0))
         self._local_host, self._local_port = self.socket.getsockname()
         self.socket.listen(5)
         self.socket.setblocking(False)
@@ -277,9 +267,9 @@ class _Connection(object):
 
     def start_accept(self, callback):
         loop = asyncio.get_event_loop()
+        # FIXME: asyncio no longer works this way (since python 3.7 'async' is a keyword)
         future = asyncio.async(loop.sock_accept(self.socket))
-        future.add_done_callback(
-            lambda future: self.handle_accept(callback, future))
+        future.add_done_callback(lambda future: self.handle_accept(callback, future))
 
     def handle_accept(self, callback, future):
         loop = asyncio.get_event_loop()
@@ -292,9 +282,11 @@ class _Connection(object):
         result = asyncio.Future()
 
         loop = asyncio.get_event_loop()
+        # FIXME: asyncio no longer works this way (since python 3.7 'async' is a keyword)
         future = asyncio.async(loop.sock_recv(self.socket, 8))
         future.add_done_callback(
-            lambda future: self.handle_read_raw_header(future, result))
+            lambda future: self.handle_read_raw_header(future, result)
+        )
         return result
 
     def handle_read_raw_header(self, future, result):
@@ -305,12 +297,12 @@ class _Connection(object):
                     self.socket.close()
                     raise DisconnectError()
 
-                raise ParseError('malformed header: ' + str(header))
+                raise ParseError("malformed header: " + str(header))
 
             try:
                 size = int(header, 16)
             except ValueError:
-                raise ParseError('invalid header: ' + str(header))
+                raise ParseError("invalid header: " + str(header))
 
             self.start_read_data(bytes(), size, result)
         except Exception as e:
@@ -324,13 +316,17 @@ class _Connection(object):
                 return
 
             loop = asyncio.get_event_loop()
+            # FIXME: asyncio no longer works this way (since python 3.7 'async' is a keyword)
             future = asyncio.async(
-                loop.sock_recv(self.socket,
-                               min(total_size - len(starting_data),
-                                   self.BUF_SIZE)))
+                loop.sock_recv(
+                    self.socket, min(total_size - len(starting_data), self.BUF_SIZE)
+                )
+            )
             future.add_done_callback(
                 lambda future: self.handle_read_data(
-                    future, starting_data, total_size, result))
+                    future, starting_data, total_size, result
+                )
+            )
         except Exception as e:
             result.set_exception(e)
             return
@@ -352,8 +348,7 @@ class _Connection(object):
         result = asyncio.Future()
 
         future = self.read_raw()
-        future.add_done_callback(
-            lambda future: self.handle_read(future, result))
+        future.add_done_callback(lambda future: self.handle_read(future, result))
         return result
 
     def handle_read(self, future, result):
@@ -384,9 +379,9 @@ class _Connection(object):
             next_send = data[to_send:]
 
             loop = asyncio.get_event_loop()
+            # FIXME: asyncio no longer works this way (since python 3.7 'async' is a keyword)
             future = asyncio.async(loop.sock_sendall(self.socket, this_send))
-            future.add_done_callback(
-                lambda future: self.send_pieces(next_send, result))
+            future.add_done_callback(lambda future: self.send_pieces(next_send, result))
         except Exception as e:
             result.set_exception(e)
 
@@ -397,7 +392,8 @@ class _Connection(object):
 
         future = self._socket_ready.wait()
         future.add_done_callback(
-            lambda future: self.ready_write(future, message, result))
+            lambda future: self.ready_write(future, message, result)
+        )
 
         return result
 
@@ -406,10 +402,9 @@ class _Connection(object):
             future.result()  # check for error
             data = message.SerializeToString()
 
-            header = tobytes('%08X' % len(data))
+            header = bytes("%08X" % len(data), "utf-8")
             future = self.send_pieces(header + data)
-            future.add_done_callback(
-                lambda future: self.finish_write(future, result))
+            future.add_done_callback(lambda future: self.finish_write(future, result))
         except Exception as e:
             result.set_exception(e)
             return
@@ -442,7 +437,7 @@ class _Connection(object):
         return self._local_port
 
 
-class _PublisherRecord(object):
+class _PublisherRecord:
     """Information about a remote topic.
 
     :ivar topic: (str) the string description of the topic
@@ -450,6 +445,7 @@ class _PublisherRecord(object):
     :ivar host: (str) the remote host of the topic publisher
     :ivar port: (int) the remote port of the topic publisher
     """
+
     def __init__(self, msg):
         self.topic = msg.topic
         self.msg_type = msg.msg_type
@@ -480,7 +476,7 @@ class Manager(object):
         :rtype: :class:`Publisher`
         """
         if topic_name in self._publishers:
-            raise RuntimeError('multiple publishers for: ' + topic_name)
+            raise RuntimeError(f"multiple publishers for: {topic_name}")
 
         to_send = msg.publish_pb2.Publish()
         to_send.topic = topic_name
@@ -488,15 +484,14 @@ class Manager(object):
         to_send.host = self._server.local_host
         to_send.port = self._server.local_port
 
-        write_future = self._master.write_packet('advertise', to_send)
+        write_future = self._master.write_packet("advertise", to_send)
         publisher = Publisher()
         publisher.topic = topic_name
         publisher.msg_type = msg_type
         self._publishers[topic_name] = publisher
 
         result = asyncio.Future()
-        write_future.add_done_callback(
-            lambda future: result.set_result(publisher))
+        write_future.add_done_callback(lambda future: result.set_result(publisher))
 
         return result
 
@@ -515,7 +510,7 @@ class Manager(object):
         """
 
         if topic_name in self._subscribers:
-            raise RuntimeError('multiple subscribers for: ' + topic_name)
+            raise RuntimeError(f"multiple subscribers for: {topic_name}")
 
         to_send = msg.subscribe_pb2.Subscribe()
         to_send.topic = topic_name
@@ -524,10 +519,9 @@ class Manager(object):
         to_send.port = self._server.local_port
         to_send.latching = False
 
-        self._master.write_packet('subscribe', to_send)
+        self._master.write_packet("subscribe", to_send)
 
-        result = Subscriber(local_host=to_send.host,
-                            local_port=to_send.port)
+        result = Subscriber(local_host=to_send.host, local_port=to_send.port)
         result.topic = topic_name
         result.msg_type = msg_type
         result.callback = callback
@@ -552,42 +546,42 @@ class Manager(object):
 
     def _run(self):
         """Starts the connection and processes events."""
-        logger.debug('Manager.run')
+        logger.debug("Manager.run")
         result = asyncio.Future()
 
         future = self._master.connect(self._address)
-        future.add_done_callback(
-            lambda future: self.handle_connect(future, result))
+        future.add_done_callback(lambda future: self.handle_connect(future, result))
         return result
 
     def handle_connect(self, future, result):
         try:
             future.result()
-            logger.debug('Manager.handle_connect')
+            logger.debug("Manager.handle_connect")
             self._server.serve(self._handle_server_connection)
 
             # Read and process the required three initialization packets.
             future = self._master.read()
             future.add_done_callback(
-                lambda future: self.handle_initdata(future, result))
+                lambda future: self.handle_initdata(future, result)
+            )
         except Exception as e:
             result.set_exception(e)
             return
 
     def handle_initdata(self, future, result):
         try:
-            logger.debug('Manager.handle_initdata')
+            logger.debug("Manager.handle_initdata")
             initData = future.result()
-            if initData.type != 'version_init':
-                raise ParseError('unexpected initialization packet: ' +
-                                 initData.type)
+            if initData.type != "version_init":
+                raise ParseError(f"unexpected initialization packet: {initData.type}")
             self._handle_version_init(
-                msg.gz_string_pb2.GzString.FromString(
-                    initData.serialized_data))
+                msg.gz_string_pb2.GzString.FromString(initData.serialized_data)
+            )
 
             future = self._master.read()
             future.add_done_callback(
-                lambda future: self.handle_namespacesdata(future, result))
+                lambda future: self.handle_namespacesdata(future, result)
+            )
         except Exception as e:
             result.set_exception(e)
             return
@@ -599,16 +593,20 @@ class Manager(object):
             # NOTE: This type string is mis-spelled in the official client
             # and server as of 2.2.1.  Presumably they'll just leave it be
             # to preserve network compatibility.
-            if namespacesData.type != 'topic_namepaces_init':
-                raise ParseError('unexpected namespaces init packet: ' +
-                                 namespacesData.type)
+            if namespacesData.type != "topic_namepaces_init":
+                raise ParseError(
+                    f"unexpected namespaces init packet: {namespacesData.type}"
+                )
             self._handle_topic_namespaces_init(
                 msg.gz_string_v_pb2.GzString_V.FromString(
-                    namespacesData.serialized_data))
+                    namespacesData.serialized_data
+                )
+            )
 
             future = self._master.read()
             future.add_done_callback(
-                lambda future: self.handle_publishersdata(future, result))
+                lambda future: self.handle_publishersdata(future, result)
+            )
         except Exception as e:
             result.set_exception(e)
             return
@@ -616,14 +614,15 @@ class Manager(object):
     def handle_publishersdata(self, future, result):
         try:
             publishersData = future.result()
-            if publishersData.type != 'publishers_init':
-                raise ParseError('unexpected publishers init packet: ' +
-                                 publishersData.type)
+            if publishersData.type != "publishers_init":
+                raise ParseError(
+                    f"unexpected publishers init packet: {publishersData.type}"
+                )
             self._handle_publishers_init(
-                msg.publishers_pb2.Publishers.FromString(
-                    publishersData.serialized_data))
+                msg.publishers_pb2.Publishers.FromString(publishersData.serialized_data)
+            )
 
-            logger.debug('Connection: initialized!')
+            logger.debug("Connection: initialized!")
             self._initialized = True
 
             self.start_normal_read()
@@ -656,97 +655,96 @@ class Manager(object):
     def _read_server_data(self, connection):
         future = connection.read()
         future.add_done_callback(
-            lambda future: self._handle_server_data(future, connection))
+            lambda future: self._handle_server_data(future, connection)
+        )
 
     def _handle_server_data(self, future, connection):
         message = future.result()
         if message is None:
             return
-        if message.type == 'sub':
+        if message.type == "sub":
             self._handle_server_sub(
                 connection,
-                msg.subscribe_pb2.Subscribe.FromString(
-                    message.serialized_data))
+                msg.subscribe_pb2.Subscribe.FromString(message.serialized_data),
+            )
         else:
-            logger.warn('Manager.handle_server_connection unknown msg:' +
-                        str(message.type))
+            logger.warning(
+                f"Manager.handle_server_connection unknown msg: {message.type}"
+            )
 
         self._read_server_data(connection)
 
     def _handle_server_sub(self, this_connection, msg):
         if not msg.topic in self._publishers:
-            logger.warn('Manager.handle_server_sub unknown topic:' + msg.topic)
+            logger.warning(f"Manager.handle_server_sub unknown topic: {msg.topic}")
             return
 
         publisher = self._publishers[msg.topic]
         if publisher.msg_type != msg.msg_type:
-            logger.error(('Manager.handle_server_sub type mismatch ' +
-                          'requested=%d publishing=%s') % (
-                publisher.msg_type, msg.msg_type))
+            logger.error(
+                f"Manager.handle_server_sub type mismatch requested={publisher.msg_type} publishing={msg.msg_type}"
+            )
             return
 
         publisher._connect(this_connection)
 
     def _process_message(self, packet):
-        logger.debug('Manager.process_message: ' + str(packet))
+        logger.debug(f"Manager.process_message: {str(packet)}")
         if packet.type in Manager._MSG_HANDLERS:
             handler, packet_type = Manager._MSG_HANDLERS[packet.type]
             handler(self, packet_type.FromString(packet.serialized_data))
         else:
-            logger.warn('unhandled message type: ' + packet.type)
+            logger.warning(f"unhandled message type: {packet.type}")
 
     def _handle_version_init(self, msg):
-        logger.debug('Manager.handle_version_init' + msg.data)
-        version = float(msg.data.split(' ')[1])
+        logger.debug(f"Manager.handle_version_init {msg.data}")
+        version = float(msg.data.split(" ")[1])
         if version < 1.9:
-            raise ParseError('Unsupported gazebo version: ' + msg.data)
+            raise ParseError(f"Unsupported gazebo version: {msg.data}")
 
     def _handle_topic_namespaces_init(self, msg):
         self._namespaces = msg.data
-        logger.debug('Manager.handle_topic_namespaces_init: ' +
-                     str(self._namespaces))
+        logger.debug(f"Manager.handle_topic_namespaces_init: {str(self._namespaces)}")
 
     def _handle_publishers_init(self, msg):
-        logger.debug('Manager.handle_publishers_init')
+        logger.debug("Manager.handle_publishers_init")
         for publisher in msg.publisher:
             self._publisher_records.add(_PublisherRecord(publisher))
-            logger.debug('  %s - %s %s:%d' % (
-                publisher.topic, publisher.msg_type,
-                publisher.host, publisher.port))
+            logger.debug(
+                f"  {publisher.topic} - {publisher.msg_type} {publisher.host}:{publisher.port}"
+            )
 
     def _handle_publisher_add(self, msg):
-        logger.debug('Manager.handle_publisher_add: %s - %s %s:%d' % (
-            msg.topic, msg.msg_type, msg.host, msg.port))
+        logger.debug(
+            f"Manager.handle_publisher_add: {msg.topic} - {msg.msg_type} {msg.host}:{msg.port}"
+        )
         self._publisher_records.add(_PublisherRecord(msg))
 
     def _handle_publisher_del(self, msg):
-        logger.debug('Manager.handle_publisher_del:' + msg.topic)
+        logger.debug(f"Manager.handle_publisher_del: {msg.topic}")
         try:
             self._publisher_records.remove(_PublisherRecord(msg))
         except KeyError:
-            logger.debug('got publisher_del for unknown: ' + msg.topic)
+            logger.debug(f"got publisher_del for unknown: {msg.topic}")
 
     def _handle_namespace_add(self, msg):
-        logger.debug('Manager.handle_namespace_add:' + msg.data)
+        logger.debug(f"Manager.handle_namespace_add: {msg.data}")
         self._namespaces.append(msg.data)
 
     def _handle_publisher_subscribe(self, msg):
-        logger.debug('Manager.handle_publisher_subscribe:' + msg.topic)
-        logger.debug(' our info: %s, %d',
-                     self._server.local_host, self._server.local_port)
+        logger.debug(f"Manager.handle_publisher_subscribe: {msg.topic}")
+        logger.debug(f" our info: {self._server.local_host}, {self._server.local_port}")
         if not msg.topic in self._subscribers:
-            logger.debug('no subscribers!')
+            logger.debug("no subscribers!")
             return
 
         # Check to see if this is ourselves... if so, then don't do
         # anything about it.
-        if ((msg.host == self._server.local_host and
-             msg.port == self._server.local_port)):
-            logger.debug('got publisher_subscribe for ourselves')
+        if msg.host == self._server.local_host and msg.port == self._server.local_port:
+            logger.debug("got publisher_subscribe for ourselves")
             return
 
-        logger.debug('creating subscriber for: %s %s %d',
-                     msg.topic, msg.host, msg.port)
+        logger.debug(f"creating subscriber for: {msg.topic} {msg.host} {msg.port}")
 
         subscriber = self._subscribers[msg.topic]
         subscriber._start_connect(msg)
@@ -758,19 +756,17 @@ class Manager(object):
         pass
 
     _MSG_HANDLERS = {
-        'publisher_add': (_handle_publisher_add, msg.publish_pb2.Publish),
-        'publisher_del': (_handle_publisher_del, msg.publish_pb2.Publish),
-        'namespace_add': (_handle_namespace_add, msg.gz_string_pb2.GzString),
-        'publisher_subscribe': (_handle_publisher_subscribe,
-                                msg.publish_pb2.Publish),
-        'publisher_advertise': (_handle_publisher_subscribe,
-                                msg.publish_pb2.Publish),
-        'unsubscribe': (_handle_unsubscribe, msg.subscribe_pb2.Subscribe),
-        'unadvertise': (_handle_unadvertise, msg.publish_pb2.Publish),
-        }
+        "publisher_add": (_handle_publisher_add, msg.publish_pb2.Publish),
+        "publisher_del": (_handle_publisher_del, msg.publish_pb2.Publish),
+        "namespace_add": (_handle_namespace_add, msg.gz_string_pb2.GzString),
+        "publisher_subscribe": (_handle_publisher_subscribe, msg.publish_pb2.Publish),
+        "publisher_advertise": (_handle_publisher_subscribe, msg.publish_pb2.Publish),
+        "unsubscribe": (_handle_unsubscribe, msg.subscribe_pb2.Subscribe),
+        "unadvertise": (_handle_unadvertise, msg.publish_pb2.Publish),
+    }
 
 
-def connect(address=('127.0.0.1', 11345)):
+def connect(address=("127.0.0.1", 11345)):
     """Create a connection to the Gazebo server.
 
     The Manager instance creates a connection to the Gazebo server,
